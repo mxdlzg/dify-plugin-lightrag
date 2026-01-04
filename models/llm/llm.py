@@ -95,7 +95,7 @@ class LightragLargeLanguageModel(LargeLanguageModel):
         server_url = credentials['server_url']
         secret = credentials['token_secret']
         query_path = urljoin(server_url, "/query/stream")
-        system_prompt, user_prompt, history_message_conversation = self._resolve_query_messages(prompt_messages)
+        system_prompt, user_prompt, history_message_conversation, workspace_id = self._resolve_query_messages(prompt_messages)
         if not user_prompt:
             raise InvokeBadRequestError('user query cannot be empty!')
         query_params = {
@@ -105,7 +105,8 @@ class LightragLargeLanguageModel(LargeLanguageModel):
             "conversation_history": history_message_conversation,
             **model_parameters}
         logger.info(f"model_parameters {model_parameters}")
-        with httpx.stream("POST", query_path, json=query_params, headers={'X-API-Key': secret},
+        headers = {'X-API-Key': secret, 'Lightrag-Workspace': workspace_id}
+        with httpx.stream("POST", query_path, json=query_params, headers=headers,
                           timeout=model_parameters['request_timeout']) as response:
             response.raise_for_status()
             idx = 0
@@ -149,7 +150,7 @@ class LightragLargeLanguageModel(LargeLanguageModel):
         server_url = credentials['server_url']
         secret = credentials['token_secret']
         query_path = urljoin(server_url, "/query")
-        system_prompt, user_prompt, history_message_conversation = self._resolve_query_messages(prompt_messages)
+        system_prompt, user_prompt, history_message_conversation, workspace_id = self._resolve_query_messages(prompt_messages)
         if not user_prompt:
             raise InvokeBadRequestError('user query cannot be empty!')
 
@@ -171,7 +172,8 @@ class LightragLargeLanguageModel(LargeLanguageModel):
             "conversation_history": history_message_conversation,
             **processed_parameters
         }
-        with httpx.post(query_path, json=query_params, headers={'X-API-Key': secret},
+        headers = {'X-API-Key': secret, 'Lightrag-Workspace': workspace_id}
+        with httpx.post(query_path, json=query_params, headers=headers,
                         timeout=model_parameters['request_timeout']) as response:
             response.raise_for_status()
             result = response.json()['response']
@@ -459,6 +461,21 @@ class LightragLargeLanguageModel(LargeLanguageModel):
     def _resolve_query_messages(self, prompt_messages: list[PromptMessage]):
         # 聊天窗口大于2,实际上是存在历史消息的
         system_prompt = prompt_messages[0].content
+        # 由于使用system_prompt传递了workspace id信息，这里需要提取并特殊处理一下。如果system prompt开头有<ID>lightrag-xxxx|lightrag-aaaa<!ID>，则提取第一个id
+        workspace_id = ""
+        try:
+            import re
+            pattern = r'<ID>([^<]+)<!ID>'
+            match = re.search(pattern, system_prompt)
+            if match:
+                ids_str = match.group(1)
+                # 用 | 分割，取第一个
+                workspace_id = ids_str.split('|')[0].strip()
+                logger.info(f"Extracted workspace_id: {workspace_id}")
+        except Exception as e:
+            logger.warning(f"Failed to extract workspace_id: {e}")
+            workspace_id = ""
+
         user_prompt = prompt_messages[-1].content
         history_message_conversation = []
         if len(prompt_messages) > 2:
@@ -468,4 +485,4 @@ class LightragLargeLanguageModel(LargeLanguageModel):
                     'content': prompt_message.content
                 } for prompt_message in prompt_messages[1:-1]
             ]
-        return system_prompt, user_prompt, history_message_conversation
+        return system_prompt, user_prompt, history_message_conversation, workspace_id
