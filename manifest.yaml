@@ -1,4 +1,4 @@
-version: 0.0.6-f1
+version: 0.0.7
 type: plugin
 author: mxdlzg
 name: lightrag-mx
@@ -19,7 +19,7 @@ plugins:
   models:
     - provider/lightrag.yaml
 meta:
-  version: 0.0.6-f1
+  version: 0.0.7
   arch:
     - amd64
     - arm64
