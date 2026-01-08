@@ -110,6 +110,7 @@ class LightragLargeLanguageModel(LargeLanguageModel):
                           timeout=model_parameters['request_timeout']) as response:
             response.raise_for_status()
             idx = 0
+            final_references = []
             for line in response.iter_lines():
                 if not line:
                     continue
@@ -120,7 +121,12 @@ class LightragLargeLanguageModel(LargeLanguageModel):
                     continue
                 result = data.get('response')
                 if result is None:
-                    logger.info(f"No 'response' field in line: {line}")
+                    if "references" in data:
+                        # 处理引用信息，可以根据需要进行扩展
+                        logger.info(f"Received references: {data['references']}")
+                        final_references.extend(data['references'])
+                    else:
+                        logger.info(f"No 'response' field in line: {line}")
                     continue
                 yield LLMResultChunk(
                     model=model,
@@ -133,6 +139,17 @@ class LightragLargeLanguageModel(LargeLanguageModel):
                     )
                 )
                 idx += 1
+            yield LLMResultChunk(
+                model=model,
+                prompt_messages=prompt_messages,
+                delta=LLMResultChunkDelta(
+                    index=idx + 1,
+                    message=AssistantPromptMessage(
+                        content=json.dumps(final_references) if len(final_references)>0 else ''
+                    )
+                )
+            )
+            idx += 1
             yield LLMResultChunk(
                 model=model,
                 prompt_messages=prompt_messages,
@@ -177,11 +194,12 @@ class LightragLargeLanguageModel(LargeLanguageModel):
                         timeout=model_parameters['request_timeout']) as response:
             response.raise_for_status()
             result = response.json()['response']
+            references = response.json().get('references', [])
             return LLMResult(
                 model=model,
                 prompt_messages=prompt_messages,
                 message=AssistantPromptMessage(
-                    content=result
+                    content=result+(json.dumps(references) if len(references)>0 else "")
                 ),
                 usage=LLMUsage.empty_usage()
             )
@@ -426,6 +444,19 @@ class LightragLargeLanguageModel(LargeLanguageModel):
                 help=I18nObject(
                     en_US="Enable reranking for retrieved text chunks",
                     zh_Hans="是否启动对召回的context做rerank",
+                )
+            ),
+            ParameterRule(
+                name="include_references", type=ParameterType.BOOLEAN,
+                default=False,
+                required=True,
+                label=I18nObject(
+                    en_US="Whether to include references",
+                    zh_Hans="是否包含引用",
+                ),
+                help=I18nObject(
+                    en_US="Include references for retrieved text chunks",
+                    zh_Hans="是否包含召回的context的引用文件详细信息",
                 )
             ),
             ParameterRule(
